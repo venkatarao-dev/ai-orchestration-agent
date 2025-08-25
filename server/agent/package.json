@@ -1,0 +1,37 @@
+{
+  "name": "langgraph-gemini-agent",
+  "version": "1.0.0",
+  "description": "LangGraph agent with Gemini API and Express server",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "test": "node test-agent.js",
+    "test:verbose": "DEBUG=true node test-agent.js",
+    "test:server": "npm run test && echo 'Starting server...' && npm start",
+    "health": "curl http://localhost:3001/health || echo 'Server not running'",
+    "quick-test": "node -e \"console.log('Quick API test...'); setTimeout(() => process.exit(0), 1000);\""
+  },
+  "keywords": [
+    "langchain",
+    "langgraph",
+    "gemini",
+    "ai-agent",
+    "express",
+    "nodejs"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@langchain/core": "^0.3.71",
+    "@langchain/google-genai": "^0.2.16",
+    "@langchain/langgraph": "^0.4.5",
+    "@types/express": "^5.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "node-fetch": "^3.3.2",
+    "zod": "^3.25.76"
+  }
+}
