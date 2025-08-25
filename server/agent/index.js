@@ -72,14 +72,14 @@ app.post("/generate", async (req, res) => {
     // Add current question
     messages.push(new HumanMessage(question));
 
-      // Invoke agent
-      const result = await agent.invoke({
-        messages,
-        config: {
-          sessionId: sessionId || "default",
-          configurable: { thread_id: sessionId || "default" }
-        },
-      });
+      const result = await agent.invoke(
+      { messages }, // First parameter: the input
+      {             // Second parameter: the configuration
+        configurable: { 
+          thread_id: sessionId || "default" 
+        }
+      }
+    );
 
     console.log(`📊 Total messages in response: ${result.messages.length}`);
 
@@ -218,21 +218,21 @@ app.use((error, req, res, next) => {
 // Start server
 app.listen(port, () => {
   console.log(`\n🚀 Server running on port ${port}`);
-  console.log(`📍 Health check: http://localhost:${port}/health`);
-  console.log(`🧪 Test endpoint: http://localhost:${port}/test`);
+  //console.log(`📍 Health check: http://localhost:${port}/health`);
+  //console.log(`🧪 Test endpoint: http://localhost:${port}/test`);
   console.log(`🔑 API Key configured: ${!!process.env.GOOGLE_API_KEY}`);
   
   // Auto-run tests in development
-  if (process.env.NODE_ENV !== 'production') {
-    console.log("\n🔧 Development mode - running initial tests...");
-    setTimeout(() => {
-      testSimpleModel().then((works) => {
-        if (works) {
-          console.log("✅ Initial API test passed");
-        } else {
-          console.log("❌ Initial API test failed - check your configuration");
-        }
-      });
-    }, 1000);
-  }
+  // if (process.env.NODE_ENV !== 'production') {
+  //   console.log("\n🔧 Development mode - running initial tests...");
+  //   setTimeout(() => {
+  //     testSimpleModel().then((works) => {
+  //       if (works) {
+  //         console.log("✅ Initial API test passed");
+  //       } else {
+  //         console.log("❌ Initial API test failed - check your configuration");
+  //       }
+  //     });
+  //   }, 1000);
+  // }
 });

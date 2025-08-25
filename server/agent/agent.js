@@ -123,7 +123,7 @@ Examples of what to answer directly:
 - "What is 2+2*3?" -> Use calculator tool
 - "Search for latest news on AI" -> Use search tool
 
-Only use weather tool for,
+Only use weather tool for:
 - "What's the weather in NYC?"
 - "Current weather in London"
 - "How's the weather today in Paris?"`,
@@ -261,4 +261,4 @@ export async function testSimpleModel() {
 }
 
 // Uncomment to test directly
-testSimpleModel().then(() => testAgent());
+//testSimpleModel().then(() => testAgent());
