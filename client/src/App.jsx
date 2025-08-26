@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import {FaTrash, FaCode, FaCopy, FaPlay} from 'react-icons/fa';
 
 function App() {
   const [messages, setMessages] = useState([]);
@@ -8,13 +9,255 @@ function App() {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  // Agent Output Parser Class
+  class AgentOutputParser {
+    static parseMarkdown(text) {
+      // Handle bold italic first (***text***)
+      text = text.replace(/\*\*\*([^*]+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+      // Handle bold (**text**)
+      text = text.replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>');
+      // Handle italic (*text*)
+      text = text.replace(/\*([^*]+?)\*/g, '<em>$1</em>');
+      // Handle code blocks with language detection
+      text = text.replace(/```(\w+)?\n?([\s\S]*?)```/g, (match, lang, code) => {
+        const language = lang || 'text';
+        const codeId = 'code-' + Math.random().toString(36).substring(2, 11);
+        return `<div class="code-block-container" data-language="${language}" data-code-id="${codeId}">
+                  <div class="code-header">
+                    <span class="code-language">${language}</span>
+                    <div class="code-actions">
+                      <button class="code-btn copy-btn" onclick="copyCode('${codeId}')" title="Copy Code">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M19 2h-4.18C14.4.84 13.3 0 12 0c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z"/>
+                        </svg>
+                        Copy
+                      </button>
+                      ${this.isExecutableLanguage(language) ? `
+                        <button class="code-btn run-btn" onclick="executeCode('${codeId}', '${language}')" title="Run Code">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M8 5.14v14l11-7-11-7z"/>
+                          </svg>
+                          Run
+                        </button>
+                      ` : ''}
+                    </div>
+                  </div>
+                  <pre class="code-content" id="${codeId}"><code class="language-${language}">${this.escapeHtml(code.trim())}</code></pre>
+                </div>`;
+      });
+      
+      // Handle inline code
+      text = text.replace(/`([^`]+?)`/g, '<code class="inline-code">$1</code>');
+      
+      // Handle line breaks and paragraphs
+      text = text.replace(/\n\n/g, '</p><p>');
+      text = text.replace(/\n/g, '<br>');
+      
+      return `<div class="parsed-content"><p>${text}</p></div>`;
+    }
 
+    static structuredParse(text) {
+      // Split by main headings (**text**)
+      const sections = text.split(/(?=\*\*[^*]+?\*\*)/);
+      let html = '<div class="structured-content">';
+      
+      sections.forEach((section, index) => {
+        if (!section.trim()) return;
+        
+        const headingMatch = section.match(/^\*\*([^*]+?)\*\*:?\s*([\s\S]*)/);
+        if (headingMatch) {
+          const heading = headingMatch[1];
+          const content = headingMatch[2];
+          
+          html += `<div class="section" key="${index}">
+                    <h3 class="section-heading">${heading}</h3>`;
+          
+          // Parse subsections (***text***)
+          const subsections = content.split(/(?=\*\*\*[^*]+?\*\*\*)/);
+          subsections.forEach((sub, subIndex) => {
+            if (!sub.trim()) return;
+            
+            const subMatch = sub.match(/^\*\*\*([^*]+?)\*\*\*:?\s*([\s\S]*)/);
+            if (subMatch) {
+              const subHeading = subMatch[1];
+              const subContent = subMatch[2];
+              html += `<div class="subsection" key="${subIndex}">
+                        <h4 class="subsection-heading">${subHeading}:</h4>
+                        <div class="subsection-content">${this.parseMarkdown(subContent)}</div>
+                      </div>`;
+            } else {
+              html += `<div class="content-block">${this.parseMarkdown(sub)}</div>`;
+            }
+          });
+          
+          html += '</div>';
+        } else {
+          html += `<div class="content-block">${this.parseMarkdown(section)}</div>`;
+        }
+      });
+      
+      html += '</div>';
+      return html;
+    }
+
+    static detectContentType(text) {
+      // Check for code blocks
+      if (/```[\s\S]*?```/.test(text)) {
+        return 'code';
+      }
+      
+      // Check for structured markdown (sections with ** and ***)
+      if (/\*\*[^*]+?\*\*[\s\S]*?\*\*\*[^*]+?\*\*\*/.test(text)) {
+        return 'structured';
+      }
+      
+      // Check for simple markdown
+      if (/\*\*[^*]+?\*\*|\*[^*]+?\*|`[^`]+?`/.test(text)) {
+        return 'markdown';
+      }
+      
+      return 'plain';
+    }
+
+    static isExecutableLanguage(language) {
+      const executableLanguages = ['javascript', 'js', 'python', 'py', 'html', 'css'];
+      return executableLanguages.includes(language.toLowerCase());
+    }
+
+    static escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    static parse(text) {
+      const contentType = this.detectContentType(text);
+      
+      switch (contentType) {
+        case 'structured':
+          return this.structuredParse(text);
+        case 'code':
+        case 'markdown':
+          return this.parseMarkdown(text);
+        default:
+          return `<div class="plain-content">${text}</div>`;
+      }
+    }
+  }
+
+  // Memoized Message Component
+  const MessageBubble = React.memo(({ content, role }) => {
+    const parsedContent = React.useMemo(() => {
+      if (role === 'ai') {
+        return AgentOutputParser.parse(content);
+      }
+      return content;
+    }, [content, role]);
+
+    // Setup code actions only once
+    React.useEffect(() => {
+      if (!window.codeActionsInitialized) {
+        window.codeActionsInitialized = true;
+        
+        window.copyCode = (codeId) => {
+          const codeElement = document.getElementById(codeId);
+          if (codeElement) {
+            const text = codeElement.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+              const copyBtn = document.querySelector(`[onclick="copyCode('${codeId}')"]`);
+              if (copyBtn) {
+                const originalHTML = copyBtn.innerHTML;
+                copyBtn.innerHTML = '<span style="color: #10b981;">✓</span>';
+                setTimeout(() => {
+                  copyBtn.innerHTML = originalHTML;
+                }, 1500);
+              }
+            });
+          }
+        };
+
+        window.executeCode = (codeId, language) => {
+          const codeElement = document.getElementById(codeId);
+          if (codeElement) {
+            const code = codeElement.textContent;
+            executeCodeFunction(code, language);
+          }
+        };
+      }
+    }, []);
+
+    const executeCodeFunction = (code, language) => {
+      try {
+        switch (language.toLowerCase()) {
+          case 'javascript':
+          case 'js':
+            // Create a safe execution environment
+            const result = eval(code);
+            addExecutionResult(code, result, language);
+            break;
+          case 'python':
+          case 'py':
+            // For Python, you'd need to integrate with a Python interpreter
+            // This is a placeholder
+            addExecutionResult(code, 'Python execution requires backend integration', language);
+            break;
+          case 'html':
+            // Open HTML in new window/iframe
+            const htmlWindow = window.open();
+            htmlWindow.document.body.innerHTML = code;
+            break;
+          default:
+            addExecutionResult(code, `Execution not supported for ${language}`, language);
+        }
+      } catch (error) {
+        addExecutionResult(code, `Error: ${error.message}`, language);
+      }
+    };
+
+    const addExecutionResult = (code, result, language) => {
+      const executionMessage = {
+        role: 'system',
+        content: `**Code Execution Result (${language}):**\n\`\`\`\n${result}\n\`\`\``,
+        timestamp: new Date().toISOString()
+      };
+      setMessages(prev => [...prev, executionMessage]);
+    };
+
+    if (role === 'ai') {
+      return (
+        <div 
+          dangerouslySetInnerHTML={{ __html: parsedContent }}
+          style={{
+            ...styles.messageBubble,
+            color: '#333'
+          }}
+        />
+      );
+    }
+
+    return (
+      <div style={{ ...styles.messageBubble, ...styles.userBubble }}>
+        {content}
+      </div>
+    );
+  });
+
+  // Debounce scroll to prevent excessive updates
+  const scrollToBottom = React.useCallback(() => {
+    if (messagesEndRef.current) {
+      const messageContainer = messagesEndRef.current.parentElement;
+      if (messageContainer) {
+        messageContainer.scrollTop = messageContainer.scrollHeight;
+      }
+    }
+  }, []);
+
+  // Only scroll when messages change
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    if (messages.length > 0) {
+      requestAnimationFrame(scrollToBottom);
+    }
+  }, [messages, scrollToBottom]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -49,7 +292,11 @@ function App() {
       const data = await response.json();
 
       if (data.success && data.response) {
-        const aiMessage = { role: "ai", content: data.response };
+        const aiMessage = { 
+          role: "ai", 
+          content: data.response,
+          timestamp: new Date().toISOString()
+        };
         setMessages((prev) => [...prev, aiMessage]);
       } else {
         throw new Error(data.error || "No response received from agent");
@@ -80,8 +327,7 @@ function App() {
       minHeight: "100vh",
       position: "relative",
       overflow: "hidden",
-      fontFamily:
-        "Poppins, sans-serif,arial",
+      fontFamily: "Poppins, sans-serif,arial",
       display: "flex",
       justifyContent: "center",
       alignItems: "center",
@@ -101,7 +347,7 @@ function App() {
     },
 
     chatContainer: {
-      maxWidth: "900px",
+      maxWidth: "1200px",
       width: "100%",
       height: "90vh",
       maxHeight: "800px",
@@ -117,8 +363,7 @@ function App() {
     },
 
     chatHeader: {
-      background:
-        "linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%)",
+      background: "linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%)",
       borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
       padding: "20px 30px",
       backdropFilter: "blur(10px)",
@@ -166,12 +411,20 @@ function App() {
       cursor: "pointer",
       fontSize: "18px",
       transition: "all 0.3s ease",
+      color: "red",
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
     },
 
     messagesContainer: {
       flex: 1,
       overflowY: "auto",
       padding: "20px",
+      willChange: "transform",
+      transform: "translateZ(0)",
+      backfaceVisibility: "hidden",
+      WebkitOverflowScrolling: "touch",
     },
 
     welcomeScreen: {
@@ -226,12 +479,21 @@ function App() {
       display: "flex",
       flexDirection: "column",
       gap: "20px",
+      willChange: "transform",
+      transform: "translateZ(0)",
+      position: "relative",
+      paddingBottom: "10px",
     },
 
     message: {
       display: "flex",
       gap: "15px",
-      animation: "slideIn 0.5s ease-out",
+      position: "relative",
+      willChange: "transform",
+      transform: "translateZ(0)",
+      "&:last-child": {
+        animation: "slideIn 0.3s ease-out",
+      },
     },
 
     userMessage: {
@@ -250,6 +512,7 @@ function App() {
       color: "white",
       flexShrink: 0,
       boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
+      animation: "pulse 2s infinite",
     },
 
     userAvatar: {
@@ -258,7 +521,7 @@ function App() {
 
     messageContent: {
       flex: 1,
-      maxWidth: "70%",
+      maxWidth: "80%",
     },
 
     messageBubble: {
@@ -267,9 +530,9 @@ function App() {
       borderRadius: "20px",
       boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
       border: "1px solid rgba(0, 0, 0, 0.05)",
-      lineHeight: 1.5,
+      lineHeight: 1.6,
       wordWrap: "break-word",
-      color: "#ab13c3ff",
+      color: "#333",
     },
 
     userBubble: {
@@ -338,11 +601,13 @@ function App() {
     inputWrapper: {
       display: "flex",
       gap: "15px",
-      alignItems: "end",
+      alignItems: "center", // Change from end to center
+      position: "relative", // Add position relative
+      minHeight: "65px", // Match send button height to prevent container shifts
     },
 
     messageInput: {
-      flex: 1,
+      width: "100%",
       background: "white",
       border: "2px solid transparent",
       borderRadius: "20px",
@@ -350,12 +615,27 @@ function App() {
       fontSize: "16px",
       fontFamily: "inherit",
       resize: "none",
-      maxHeight: "120px",
-      minHeight: "24px",
+      height: "44px", // Fixed height to prevent container jerking
+      maxHeight: "250px",
+      overflowY: "auto",
       transition: "all 0.3s ease",
       boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
       outline: "none",
       color: "#333",
+      "&::-webkit-scrollbar": {
+        width: "8px",
+        backgroundColor: "#f1f5f9",
+        borderRadius: "8px"
+      },
+      "&::-webkit-scrollbar-thumb": {
+        backgroundColor: "#c7d2fe",
+        borderRadius: "8px"
+      },
+      "&::-webkit-scrollbar-thumb:hover": {
+        backgroundColor: "#667eea"
+      },
+      scrollbarWidth: "thin",
+      scrollbarColor: "#c7d2fe #f1f5f9",
     },
 
     messageInputFocused: {
@@ -369,8 +649,8 @@ function App() {
     },
 
     sendButton: {
-      width: "50px",
-      height: "50px",
+      width: "65px",
+      height: "65px",
       background: "linear-gradient(135deg, #667eea, #764ba2)",
       border: "none",
       borderRadius: "50%",
@@ -398,7 +678,7 @@ function App() {
     },
   };
 
-  // Add CSS animations
+  // CSS Animations and Styles
   const cssAnimations = `
     @keyframes pulse {
       0%, 100% { transform: scale(1); }
@@ -414,11 +694,11 @@ function App() {
     @keyframes slideIn {
       from {
         opacity: 0;
-        transform: translateY(20px);
+        transform: translate3d(0, 10px, 0);
       }
       to {
         opacity: 1;
-        transform: translateY(0);
+        transform: translate3d(0, 0, 0);
       }
     }
     
@@ -506,7 +786,67 @@ function App() {
       50% { transform: translate(-20px, 20px) rotate(180deg); }
       75% { transform: translate(-30px, -10px) rotate(270deg); }
     }
-    
+  
+    /* Enhanced Code Block Styles */
+    .code-block-container {
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+    }
+
+    .code-header {
+      background: #f3f4f6 !important;
+      padding: 8px 12px !important;
+      border-bottom: 1px solid #e5e7eb !important;
+    }
+
+    .code-language {
+      font-size: 0.8rem !important;
+      color: #374151 !important;
+      font-weight: 600 !important;
+      letter-spacing: 0.025em !important;
+    }
+
+    .code-btn {
+      background: #ffffff !important;
+      border: 1px solid #d1d5db !important;
+      padding: 4px 12px !important;
+      height: 30px !important;
+      font-size: 0.8rem !important;
+      font-weight: 500 !important;
+      color: #4b5563 !important;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 6px !important;
+      min-width: 70px !important;
+      justify-content: center !important;
+    }
+
+    .code-btn svg {
+      width: 14px !important;
+      height: 14px !important;
+      flex-shrink: 0 !important;
+    }
+
+    .code-btn:hover {
+      background: #f9fafb !important;
+      border-color: #9ca3af !important;
+      color: #1f2937 !important;
+    }
+
+    .copy-btn:hover {
+      background: #eff6ff !important;
+      border-color: #2563eb !important;
+      color: #2563eb !important;
+      box-shadow: 0 1px 3px rgba(37, 99, 235, 0.1) !important;
+    }
+
+    .run-btn:hover {
+      background: #ecfdf5 !important;
+      border-color: #059669 !important;
+      color: #059669 !important;
+      box-shadow: 0 1px 3px rgba(5, 150, 105, 0.1) !important;
+    }
+
     /* Mobile responsiveness */
     @media (max-width: 768px) {
       .app-container {
@@ -531,6 +871,17 @@ function App() {
       
       .message-content {
         max-width: 85% !important;
+      }
+
+      .code-header {
+        flex-direction: column;
+        gap: 8px;
+        align-items: flex-start;
+      }
+
+      .code-actions {
+        width: 100%;
+        justify-content: flex-end;
       }
     }
   `;
@@ -563,7 +914,7 @@ function App() {
               <div style={styles.aiIcon}>🤖</div>
               <div>
                 <h1 style={styles.headerTitle}>Lumina AI</h1>
-                <p style={styles.headerSubtitle}>Your Intelligent Assistant</p>
+                <p style={styles.headerSubtitle}>Your Intelligent Assistant with Code Execution</p>
               </div>
             </div>
             <button
@@ -572,7 +923,7 @@ function App() {
               onClick={clearChat}
               title="Clear Chat"
             >
-              🗑️
+              <FaTrash/> Clear
             </button>
           </div>
         </div>
@@ -584,30 +935,30 @@ function App() {
               <div style={styles.welcomeIcon}>✨</div>
               <h2 style={styles.welcomeTitle}>Welcome to Lumina AI</h2>
               <p style={styles.welcomeText}>
-                I can help you with weather, calculations, web searches, and
-                answer questions on any topic!
+                I can help you with code execution, calculations, web searches, and
+                answer questions on any topic with properly formatted responses!
               </p>
               <div style={styles.suggestionChips} className="suggestion-chips">
                 <button
                   style={styles.chip}
                   className="chip"
-                  onClick={() => setInput("What is JavaScript?")}
+                  onClick={() => setInput("Write a Python function to calculate fibonacci numbers")}
                 >
-                  💻 What is JavaScript?
+                  🐍 Python Fibonacci
                 </button>
                 <button
                   style={styles.chip}
                   className="chip"
-                  onClick={() => setInput("What's the weather in New York?")}
+                  onClick={() => setInput("Create a JavaScript function to sort an array")}
                 >
-                  🌤️ Weather in NYC
+                  💻 JavaScript Sort
                 </button>
                 <button
                   style={styles.chip}
                   className="chip"
-                  onClick={() => setInput("Calculate 15 * 23")}
+                  onClick={() => setInput("Explain the benefits of learning Go programming language")}
                 >
-                  🔢 Calculate 15 × 23
+                  🔍 Go Language Benefits
                 </button>
               </div>
             </div>
@@ -625,19 +976,13 @@ function App() {
                     style={{
                       ...styles.messageAvatar,
                       ...(msg.role === "user" ? styles.userAvatar : {}),
+                      ...(msg.role === "system" ? { background: "linear-gradient(135deg, #10b981, #34d399)" } : {})
                     }}
                   >
-                    {msg.role === "user" ? "👤" : "🤖"}
+                    {msg.role === "user" ? "👤" : msg.role === "system" ? "⚡" : "🤖"}
                   </div>
                   <div style={styles.messageContent}>
-                    <div
-                      style={{
-                        ...styles.messageBubble,
-                        ...(msg.role === "user" ? styles.userBubble : {}),
-                      }}
-                    >
-                      {msg.content}
-                    </div>
+                    <MessageBubble content={msg.content} role={msg.role} />
                     <div
                       style={{
                         ...styles.messageTime,
@@ -707,8 +1052,7 @@ function App() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyPress}
               disabled={isLoading}
-              placeholder="Type your message here... (Press Enter to send)"
-              rows="1"
+              placeholder="Ask me anything... I can parse markdown, execute code, and format responses beautifully! (Press Enter to send)"
               style={{
                 ...styles.messageInput,
                 ...(isLoading ? styles.messageInputDisabled : {}),
